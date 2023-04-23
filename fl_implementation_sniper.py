@@ -42,9 +42,16 @@ clients = create_clients(X_train, y_train, num_clients=10, initial='client')
 
 #process and batch the training data for each client
 clients_batched = dict()
+poisioned_batched=dict()
 for (client_name, data) in clients.items():
     bd=batch_data(data)
+    pd=poision_data(data)
     clients_batched[client_name] = bd
+    k = random.randint(0, 1)
+    if k==1:
+        poisioned_batched[client_name]=pd
+    else:
+        poisioned_batched[client_name]=bd
 
 #process and batch the test set  
 test_batched = tf.data.Dataset.from_tensor_slices((X_test, y_test)).batch(len(y_test))
@@ -71,7 +78,8 @@ for comm_round in range(comms_round):
     scaled_local_weight_list = list()
 
     #randomize client data - using keys
-    client_names= list(clients_batched.keys())
+    # client_names= list(clients_batched.keys())
+    client_names= list(poisioned_batched.keys())
     random.shuffle(client_names)
     
     #loop through each client and create new local model
@@ -84,19 +92,44 @@ for comm_round in range(comms_round):
         local_model.set_weights(global_weights)
         
         #fit local model with client's data
-        local_model.fit(clients_batched[client], epochs=1, verbose=0)
+        # local_model.fit(clients_batched[client], epochs=1, verbose=0)
+        local_model.fit(poisioned_batched[client], epochs=1, verbose=0)
 
         #scale the model weights and add to list
-        scaling_factor = weight_scalling_factor(clients_batched, client)
+        # scaling_factor = weight_scalling_factor(clients_batched, client)
+        scaling_factor = weight_scalling_factor(poisioned_batched, client)
 
         scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
         scaled_local_weight_list.append(scaled_weights)
         
         #clear session to free memory after each communication round
         K.clear_session()
+    
+    edges=make_edges(scaled_local_weight_list, 0.2)
+    graph = {}
+    vertices = set()
 
+    for u, v in edges:
+        if u not in graph:
+            graph[u] = set()
+        if v not in graph:
+            graph[v] = set()
+        graph[u].add(v)
+        graph[v].add(u)
+        vertices.add(u)
+        vertices.add(v)
+    print(graph)
+    max_clique = bron_kerbosch(nx.Graph(graph))
+    print(max_clique)
+    if len(max_clique)<=5:
+        exit()
+
+    modified_scaled_local_weight_list=[]
+    for x in max_clique:
+        modified_scaled_local_weight_list.append(scaled_local_weight_list[x])
     #to get the average over all the local model, we simply take the sum of the scaled weights
-    average_weights = sum_scaled_weights(scaled_local_weight_list)
+    # average_weights = sum_scaled_weights(scaled_local_weight_list)
+    average_weights = sum_scaled_weights(modified_scaled_local_weight_list)
 
     #update global model 
     global_model.set_weights(average_weights)

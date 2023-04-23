@@ -42,9 +42,16 @@ clients = create_clients(X_train, y_train, num_clients=10, initial='client')
 
 #process and batch the training data for each client
 clients_batched = dict()
+poisioned_batched=dict()
 for (client_name, data) in clients.items():
     bd=batch_data(data)
+    pd=poision_data(data)
     clients_batched[client_name] = bd
+    k = random.randint(0, 1)
+    if k==1:
+        poisioned_batched[client_name]=pd
+    else:
+        poisioned_batched[client_name]=bd
 
 #process and batch the test set  
 test_batched = tf.data.Dataset.from_tensor_slices((X_test, y_test)).batch(len(y_test))
@@ -64,6 +71,7 @@ global_model = smlp_global.build(784, 10)
 #commence global training loop
 for comm_round in range(comms_round):
     graph=set()        
+    
     # get the global model's weights - will serve as the initial weights for all local models
     global_weights = global_model.get_weights()
     
@@ -71,7 +79,8 @@ for comm_round in range(comms_round):
     scaled_local_weight_list = list()
 
     #randomize client data - using keys
-    client_names= list(clients_batched.keys())
+    # client_names= list(clients_batched.keys())
+    client_names= list(poisioned_batched.keys())
     random.shuffle(client_names)
     
     #loop through each client and create new local model
@@ -84,10 +93,12 @@ for comm_round in range(comms_round):
         local_model.set_weights(global_weights)
         
         #fit local model with client's data
-        local_model.fit(clients_batched[client], epochs=1, verbose=0)
+        # local_model.fit(clients_batched[client], epochs=1, verbose=0)
+        local_model.fit(poisioned_batched[client], epochs=1, verbose=0)
 
         #scale the model weights and add to list
-        scaling_factor = weight_scalling_factor(clients_batched, client)
+        # scaling_factor = weight_scalling_factor(clients_batched, client)
+        scaling_factor = weight_scalling_factor(poisioned_batched, client)
 
         scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
         scaled_local_weight_list.append(scaled_weights)
