@@ -4,209 +4,179 @@ import random
 import cv2
 import numpy as np
 import tensorflow as tf
-from keras import backend as K
-from keras.layers import Activation, Dense
+from keras import layers
 from keras.models import Sequential
 from sklearn.metrics import accuracy_score
 
 
-def load(paths, verbose=-1):
-    """expects images for each class in seperate dir,
-    e.g all digits in 0 class in the directory named 0"""
-    data = list()
-    labels = list()
-    # loop over the input images
-    for i, imgpath in enumerate(paths):
-        # load the image and extract the class labels
-        im_gray = cv2.imread(imgpath, cv2.IMREAD_GRAYSCALE)
-        image = np.array(im_gray).flatten()
-        label = imgpath.split(os.path.sep)[-2]
-        # scale the image to [0, 1] and add to list
-        data.append(image / 255)
+def load(paths, verbose=False):
+    """
+    Returns data, labels by iterating image paths
+    """
+    data, labels = [], []
+
+    for i, path in enumerate(paths):
+        image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        image = np.array(image).flatten()
+
+        label = path.split(os.path.sep)[-2]
         labels.append(label)
-        # show an update every `verbose` images
-        if verbose > 0 and i > 0 and (i + 1) % verbose == 0:
-            print("[INFO] processed {}/{}".format(i + 1, len(paths)))
-    # return a tuple of the data and labels
+
+        # Normalize image data between 0 and 1
+        data.append(image / 255)
+
+        if verbose and i > 0 and (i + 1) % 10000 == 0:
+            print("Processed {}/{}".format(i + 1, len(paths)))
+
     return data, labels
 
 
-def create_clients(image_list, label_list, num_clients=10, namespace="clients"):
-    """return: a dictionary with keys clients' names and value as
-            data shards - tuple of images and label lists.
+def create_clients(img_list, lbl_list, num_clients=10, namespace="clients") -> dict:
+    """
     args:
-        image_list: a list of numpy arrays of training images
-        label_list:a list of binarized labels for each image
-        num_client: number of fedrated members (clients)
-        initials: the clients'name prefix, e.g, clients_1
+        - ``img_list``: list of training images
+        - ``lbl_list``: list of binarized labels
+        - ``num_clients``: number of clients
+        - ``namespace``: name prefix for each client node, e.g, clients_1
 
+    return: clients with data shards
     """
 
-    # create a list of client names
-    client_names = ["{}_{}".format(namespace, i + 1) for i in range(num_clients)]
+    # create specified number of clients
+    clients = [f"{namespace}_{i+1}" for i in range(num_clients)]
 
-    # randomize the data
-    data = list(zip(image_list, label_list))
+    data = list(zip(img_list, lbl_list))
     random.shuffle(data)
 
-    # shard data and place at each client
-    size = len(data) // num_clients
-    shards = [data[i : i + size] for i in range(0, size * num_clients, size)]
+    # create data shards for each client
+    shard = len(data) // num_clients
+    client_data = [data[i : i + shard] for i in range(0, shard * num_clients, shard)]
 
-    # number of clients must equal number of shards
-    assert len(shards) == len(client_names)
-
-    return {client_names[i]: shards[i] for i in range(len(client_names))}
+    assert len(client_data) == num_clients
+    return {clients[i]: client_data[i] for i in range(len(clients))}
 
 
-def batch_data(data_shard, bs=32):
-    """Takes in a clients data shard and create a tfds object off it
-    args:
-        shard: a data, label constituting a client's data shard
-        bs:batch size
-    return:
-        tfds object"""
+def client_batch_data(data_shard, batch_size=32):
+    """
+    Create a tf dataset object from data shard
+    """
     # seperate shard into data and labels lists
     data, label = zip(*data_shard)
     dataset = tf.data.Dataset.from_tensor_slices((list(data), list(label)))
-    return dataset.shuffle(len(label)).batch(bs)
+    return dataset.shuffle(len(label)).batch(batch_size)
 
 
-def poision_data(data_shard, bs=32, flip_fraction=1):
-    """Performs label flipping on a fraction of the samples in a client's data shard.
-    Args:
-        data_shard: a list of tuples (data, label) constituting a client's data shard, 
-                    with labels in 1-hot-encoded format
-        bs: batch size
-        flip_fraction: the fraction of samples to flip their labels
-    Returns:
-        A TensorFlow Dataset object"""
-    
+def poison_data(data_shard, batch_size=32):
+    """
+    Create a tf dataset object from data shard with targeted label flipping
+    """
     # Separate shard into data and labels lists
     data, label = zip(*data_shard)
     label = np.array(label)
-    
-    for index,x in enumerate(label):
-        if(x[6]==1):
-            label[index][6]=0
-            label[index][2]=1
-        if(x[8]==1):
-            label[index][8]=0
-            label[index][4]=1
-        if(x[9]==1):
-            label[index][9]=0
-            label[index][3]=1
+
+    # Perform label flipping on a fraction of the samples
+    for i, x in enumerate(label):
+        if x[6] == 1:
+            label[i][6] = 0
+            label[i][2] = 1
+        if x[8] == 1:
+            label[i][8] = 0
+            label[i][4] = 1
+        if x[9] == 1:
+            label[i][9] = 0
+            label[i][3] = 1
 
     # Convert the data and labels lists into TensorFlow tensors
     data = tf.convert_to_tensor(list(data), dtype=tf.float32)
     label = tf.convert_to_tensor(list(label), dtype=tf.int32)
+
     # Create a TensorFlow Dataset object
     dataset = tf.data.Dataset.from_tensor_slices((data, label))
-    return dataset.shuffle(len(label)).batch(bs)
+    return dataset.shuffle(len(label)).batch(batch_size)
 
-class SimpleMLP:
+
+class MLP:
     @staticmethod
-    def build(shape, classes):
-        model = Sequential()
-        model.add(Dense(200, input_shape=(shape,)))
-        model.add(Activation("relu"))
-        model.add(Dense(200))
-        model.add(Activation("relu"))
-        model.add(Dense(classes))
-        model.add(Activation("softmax"))
-        return model
-
-
-def weight_scalling_factor(clients_trn_data, client_name):
-    client_names = list(clients_trn_data.keys())
-    # get the bs
-    bs = list(clients_trn_data[client_name])[0][0].shape[0]
-    # first calculate the total training data points across clinets
-    global_count = (
-        sum(
+    def build_model(shape, classes):
+        return Sequential(
             [
-                tf.data.experimental.cardinality(clients_trn_data[client_name]).numpy()
-                for client_name in client_names
+                layers.Dense(200, input_shape=(shape,)),
+                layers.Activation("relu"),
+                layers.Dense(200),
+                layers.Activation("relu"),
+                layers.Dense(classes),
+                layers.Activation("softmax"),
             ]
         )
-        * bs
-    )
-    # get the total number of data points held by a client
-    local_count = (
-        tf.data.experimental.cardinality(clients_trn_data[client_name]).numpy() * bs
-    )
+
+
+def local_scaling_factor(client_data, client_name):
+    """
+    Returns the ratio of local to global data size
+    """
+    client_names = list(client_data.keys())
+    model_counts = [
+        tf.data.experimental.cardinality(client_data[client]).numpy()
+        for client in client_names
+    ]
+    global_count = sum(model_counts)
+
+    local_count = tf.data.experimental.cardinality(client_data[client_name]).numpy()
     return local_count / global_count
 
 
-def scale_model_weights(weight, scalar):
-    """function for scaling a models weights"""
-    weight_final = []
-    steps = len(weight)
-    for i in range(steps):
-        weight_final.append(scalar * weight[i])
-    return weight_final
+def scale_local_weights(weight, scalar):
+    """
+    Returns scaled model weights for each client
+    """
+    return [scalar * w for w in weight]
 
 
-def sum_scaled_weights(scaled_weight_list):
-    """Return the sum of the listed scaled weights. The is equivalent to scaled avg of the weights"""
-    avg_grad = list()
-    # get the average grad accross all client gradients
-    for grad_list_tuple in zip(*scaled_weight_list):
-        layer_mean = tf.math.reduce_sum(grad_list_tuple, axis=0)
-        avg_grad.append(layer_mean)
-
-    return avg_grad
+def sum_scaled_weights(scaled_wts):
+    """
+    Return the sum of the scaled weights
+    """
+    return [tf.math.reduce_sum(weight, axis=0) for weight in zip(*scaled_wts)]
 
 
 def test_model(X_test, Y_test, model, comm_round):
     cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-    # logits = model.predict(X_test, batch_size=100)
-    logits = model.predict(X_test)
+    logits = model.predict(X_test, batch_size=100)
     loss = cce(Y_test, logits)
     acc = accuracy_score(tf.argmax(logits, axis=1), tf.argmax(Y_test, axis=1))
-    print(
-        "comm_round: {} | global_acc: {:.3%} | global_loss: {}".format(
-            comm_round, acc, loss
-        )
-    )
+    print(f"comm_round: {comm_round} | global_acc: {acc:.3%} | global_loss: {loss}")
     return acc, loss
 
 
-def euclidean_distance(point1, point2):
+def euclid_dist(point1, point2):
     """
     Computes the Euclidean distance between two points in 2D space.
     """
     # Calculate the difference between the weights and biases of the two models
     diff = [np.subtract(point1[0][i], point2[0][i]) for i in range(len(point1[0]))]
 
-    # Calculate the sum of squares of the differences
-    squared_diff = [np.square(d) for d in diff]
-    sum_squared_diff = np.sum(squared_diff)
-
-    # Take the square root of the sum of squares to get the Euclidean distance
-    distance = np.sqrt(sum_squared_diff)
-    return distance
-    # distance_sq=0
-    # for i in range(len(point1)):
-    #     p=0
-    #     # distance_sq+=(point1[i]-point2[i])**2
-    # return math.sqrt(distance_sq)
+    # Return Euclidean distance between the two models
+    sq_diff = [np.square(d) for d in diff]
+    return np.sqrt(np.sum(sq_diff))
 
 
-def make_edges(coordinates, threshold):
+def make_edges(coord, threshold):
     """
     Creates edges between coordinates if the Euclidean distance between them is less than the threshold.
     """
     edges = set()
-    length = len(coordinates)
+    length = len(coord)
     for i in range(length):
         for j in range(i + 1, length):
-            if euclidean_distance(coordinates[i], coordinates[j]) < threshold:
+            if euclid_dist(coord[i], coord[j]) < threshold:
                 edges.add(frozenset({i, j}))
     return edges
 
 
-def bron_kerbosch(graph):
+def get_max_clique(graph):
+    """
+    Returns the maximum clique in the graph using bron-kerbosch algorithm.
+    """
     R = set()
     P = set(graph.nodes())
     X = set()

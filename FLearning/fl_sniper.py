@@ -1,5 +1,4 @@
 import networkx as nx
-import tensorflow as tf
 
 from FLearning.fl_poison import FLPoison
 from FLearning.utils import *
@@ -19,7 +18,7 @@ class FLSniper(FLPoison):
             graph[u].add(v)
             graph[v].add(u)
 
-        max_clique = bron_kerbosch(nx.Graph(graph))
+        max_clique = get_max_clique(nx.Graph(graph))
         if len(max_clique) <= cliques:
             raise Exception("Too few cliques to continue")
 
