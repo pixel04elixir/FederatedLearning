@@ -72,33 +72,37 @@ def batch_data(data_shard, bs=32):
     return dataset.shuffle(len(label)).batch(bs)
 
 
-def poision_data(data_shard, bs=32, flip_fraction=0.001):
-    """Takes in a client's data shard, create a tfds object off it,
-    and perform label flipping on a fraction of the samples.
+def poision_data(data_shard, bs=32, flip_fraction=1):
+    """Performs label flipping on a fraction of the samples in a client's data shard.
     Args:
-        data_shard: a list of tuples (data, label) constituting a client's data shard
+        data_shard: a list of tuples (data, label) constituting a client's data shard, 
+                    with labels in 1-hot-encoded format
         bs: batch size
         flip_fraction: the fraction of samples to flip their labels
     Returns:
-        tfds object"""
+        A TensorFlow Dataset object"""
+    
     # Separate shard into data and labels lists
     data, label = zip(*data_shard)
     label = np.array(label)
+    
+    for index,x in enumerate(label):
+        if(x[6]==1):
+            label[index][6]=0
+            label[index][2]=1
+        if(x[8]==1):
+            label[index][8]=0
+            label[index][4]=1
+        if(x[9]==1):
+            label[index][9]=0
+            label[index][3]=1
 
-    # Perform label flipping on a fraction of the samples
-    flip_indices = np.random.choice(
-        len(label), size=int(len(label) * flip_fraction), replace=False
-    )
-    # Flip the labels of the selected samples
-    label[flip_indices] = 9 - label[flip_indices]
     # Convert the data and labels lists into TensorFlow tensors
     data = tf.convert_to_tensor(list(data), dtype=tf.float32)
-    label = tf.convert_to_tensor(label, dtype=tf.int32)
-
+    label = tf.convert_to_tensor(list(label), dtype=tf.int32)
     # Create a TensorFlow Dataset object
     dataset = tf.data.Dataset.from_tensor_slices((data, label))
     return dataset.shuffle(len(label)).batch(bs)
-
 
 class SimpleMLP:
     @staticmethod
