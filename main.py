@@ -1,42 +1,50 @@
 import matplotlib.pyplot as plt
 
-from FLearning import FLBase
 from FLearning import FLPoison
 from FLearning import FLSniper
 
 img_path = "./archive/trainingSet/trainingSet"
-# fl1 = FLPoison(img_path, momentum=0)
-fl2 = FLPoison(img_path, momentum=0)
-x, y1, y2 = [], [], []
-for i in range(0, 6):
-    # fl1.initialize(poison_clients=i/10)
-    fl2.initialize(poison_clients=i / 10)
-    # fl1.train(rounds=5)
-    fl2.train(rounds=5)
-    # acc1, loss1 = fl1.evaluate()
-    acc2, loss2 = fl2.evaluate()
-    x.append(i * 10)
-    # y1.append(acc1*100)
-    y2.append(acc2 * 100)
+fl1 = FLPoison(img_path, momentum=0)
+fl2 = FLSniper(img_path, momentum=0)
+# fl3 = FLSniper(img_path, momentum=0.5)
+# fl4 = FLSniper(img_path, momentum=0.9)
 
-# plt.plot(x, y1)
-# plt.xlabel("Number of Attackers (%)")
+y1, y2, y3, y4 = [], [], [], []
+for i in range(0, 5):
+    fl1.initialize(poison_clients=0.3, flp=i / 5.0)
+    fl2.initialize(poison_clients=0.3, flp=i / 5.0)
+    # fl3.initialize(poison_clients=i / 10.0)
+    # fl4.initialize(poison_clients=i / 10.0)
+
+    y1.append(fl1.train(rounds=10)[-1])
+    y2.append(fl2.train(rounds=10)[-1])
+    # y3.append(fl3.train(rounds=10)[-1])
+    # y4.append(fl4.train(rounds=10)[-1])
+
+x = [i*20 for i in range(6)]
+
+# plt.ylim(60, 100)
+# plt.xlim(0, 5)
+# plt.plot(x, y1, label="Poisoned FL")
+# plt.xlabel("Number of Attackers")
 # plt.ylabel("Global Accuracy (%)")
 # plt.title("Accuracy vs Number of Attackers")
 # plt.legend()
 # plt.show()
 
-plt.plot(x, y2)
-plt.xlabel("Number of Attackers (%)")
+# plt.plot(x, y2, label="Sniper FL")
+# plt.xlabel("Number of Attackers")
+# plt.ylabel("Global Accuracy (%)")
+# plt.title("Accuracy vs Number of Attackers")
+# plt.legend()
+# plt.show()
+
+plt.plot(x, y1, label="Poisoned FL")
+plt.plot(x, y2, label="Sniper")
+# plt.plot(x, y3, label="Sniper + Momentum = 0.5")
+# plt.plot(x, y4, label="Sniper + Momentum = 0.9")
+plt.xlabel("Poisoned Samples (%)")
 plt.ylabel("Global Accuracy (%)")
-plt.title("Accuracy vs Number of Attackers")
+plt.title("Accuracy vs Number of Poisoned Samples")
 plt.legend()
 plt.show()
-
-# plt.plot(x, y1, label="Poison")
-# plt.plot(x, y2, label="Sniper")
-# plt.xlabel("Number of Attackers (%)")
-# plt.ylabel("Global Accuracy (%)")
-# plt.title("Accuracy vs Number of Attackers")
-# plt.legend()
-# plt.show()

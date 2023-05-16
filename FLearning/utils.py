@@ -31,19 +31,19 @@ def load(paths, verbose=False):
     return data, labels
 
 
-def create_clients(img_list, lbl_list, num_clients=10, namespace="clients") -> dict:
+def create_clients(img_list, lbl_list, num_clients=10, namespace="client") -> dict:
     """
     args:
         - ``img_list``: list of training images
         - ``lbl_list``: list of binarized labels
         - ``num_clients``: number of clients
-        - ``namespace``: name prefix for each client node, e.g, clients_1
+        - ``namespace``: name prefix for each client node, e.g, client_1
 
     return: clients with data shards
     """
 
     # create specified number of clients
-    clients = [f"{namespace}_{i+1}" for i in range(num_clients)]
+    clients = [f"{namespace}_{i}" for i in range(num_clients)]
 
     data = list(zip(img_list, lbl_list))
     random.shuffle(data)
@@ -66,7 +66,7 @@ def client_batch_data(data_shard, batch_size=32):
     return dataset.shuffle(len(label)).batch(batch_size)
 
 
-def poison_data(data_shard, batch_size=32):
+def poison_data(data_shard, batch_size=32, flip_fraction=0.7):
     """
     Create a tf dataset object from data shard with targeted label flipping
     """
@@ -75,16 +75,13 @@ def poison_data(data_shard, batch_size=32):
     label = np.array(label)
 
     # Perform label flipping on a fraction of the samples
-    for i, x in enumerate(label):
-        if x[6] == 1:
-            label[i][6] = 0
-            label[i][2] = 1
-        if x[8] == 1:
-            label[i][8] = 0
-            label[i][4] = 1
-        if x[9] == 1:
-            label[i][9] = 0
-            label[i][3] = 1
+    flip_indices = np.random.choice(
+        len(label), size=int(len(label) * flip_fraction), replace=False
+    )
+
+    # Flip the labels of the selected samples
+    for index in flip_indices:
+        label[index] = np.roll(label[index], 1)
 
     # Convert the data and labels lists into TensorFlow tensors
     data = tf.convert_to_tensor(list(data), dtype=tf.float32)
@@ -153,6 +150,7 @@ def euclid_dist(point1, point2):
     Computes the Euclidean distance between two points in 2D space.
     """
     # Calculate the difference between the weights and biases of the two models
+
     diff = [np.subtract(point1[0][i], point2[0][i]) for i in range(len(point1[0]))]
 
     # Return Euclidean distance between the two models
@@ -165,9 +163,11 @@ def make_edges(coord, threshold):
     Creates edges between coordinates if the Euclidean distance between them is less than the threshold.
     """
     edges = set()
-    length = len(coord)
-    for i in range(length):
-        for j in range(i + 1, length):
+    for i in coord.keys():
+        for j in coord.keys():
+            if i == j:
+                continue
+            # print(f"Eucledian distance between {i} and {j} is {euclid_dist(coord[i], coord[j])}")
             if euclid_dist(coord[i], coord[j]) < threshold:
                 edges.add(frozenset({i, j}))
     return edges
@@ -177,23 +177,22 @@ def get_max_clique(graph):
     """
     Returns the maximum clique in the graph using bron-kerbosch algorithm.
     """
-    R = set()
-    P = set(graph.nodes())
-    X = set()
-    max_clique = set()
 
     def expand(R, P, X):
-        nonlocal max_clique
-
         if not P and not X:
-            if len(R) > len(max_clique):
-                max_clique = set(R)
+            cliques.append(R)
             return
 
         for v in list(P):
-            expand(R | {v}, P & set(graph.neighbors(v)), X & set(graph.neighbors(v)))
+            expand(R | {v}, P & graph[v], X & graph[v])
             P.remove(v)
             X.add(v)
 
-    expand(R, P, X)
+    cliques = []
+    max_clique = []
+    expand(set(), set(graph.keys()), set())
+    for clique in cliques:
+        if len(clique) > len(max_clique):
+            max_clique = clique
+
     return max_clique

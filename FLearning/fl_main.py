@@ -60,9 +60,10 @@ class FLBase:
 
     def train(self, rounds=100, test=True):
         # Iteratively update global model
+        result = []
         for round in range(rounds):
             global_wt = self.global_model.get_weights()
-            scaled_local_wt = []
+            local_wt = {}
 
             for client in self.client_batch.keys():
                 mlp_local = MLP()
@@ -76,14 +77,24 @@ class FLBase:
                 local_model.fit(self.client_batch[client], epochs=1, verbose=0)
 
                 # scale the local model weights
-                factor = local_scaling_factor(self.client_batch, client)
-                scaled_wt = scale_local_weights(local_model.get_weights(), factor)
+                local_wt[client] = local_model.get_weights()
 
-                scaled_local_wt.append(scaled_wt)
+                # scaled_local_wt.append(scaled_wt)
                 K.clear_session()
 
             # Post-cleaning step
-            scaled_local_wt = self.fl_cleanup(scaled_local_wt)
+            filter_keys = self.fl_cleanup(local_wt)
+            clean_batch = {
+                client: value
+                for client, value in self.client_batch.items()
+                if client in filter_keys
+            }
+
+            scaled_local_wt = [
+                scale_local_weights(local_wt[i], local_scaling_factor(clean_batch, i))
+                for i in clean_batch.keys()
+            ]
+
             average_weights = sum_scaled_weights(scaled_local_wt)
 
             # update global model
@@ -91,7 +102,10 @@ class FLBase:
 
             if test:
                 for X_test, Y_test in self.test_batch:
-                    test_model(X_test, Y_test, self.global_model, round)
+                    gacc, _ = test_model(X_test, Y_test, self.global_model, round)
+                    result.append(gacc * 100)
+
+        return result
 
     def evaluate(self):
         for X_test, Y_test in self.test_batch:
@@ -101,5 +115,5 @@ class FLBase:
     def save(self, save_file="fl_model.h5"):
         self.global_model.save(save_file)
 
-    def fl_cleanup(self, scaled_local_wt):
-        return scaled_local_wt
+    def fl_cleanup(self, local_wt):
+        return list(local_wt.keys())

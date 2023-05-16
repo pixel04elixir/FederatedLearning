@@ -16,8 +16,9 @@ class FLPoison(FLBase):
     ):
         super().__init__(img_path, lr, loss, metrics, momentum, optimizer)
 
-    def initialize(self, clients=10, poison_clients=0.1):
+    def initialize(self, clients=10, poison_clients=0.1, flp=0.7):
         self.poison_clients = poison_clients
+        self.flp = flp
         super().initialize(clients=clients)
 
     def _get_client_data(self):
@@ -25,8 +26,9 @@ class FLPoison(FLBase):
         poison_clients = random.sample(
             self.clients.keys(), int(self.poison_clients * len(self.clients))
         )
+        print(poison_clients)
         return {
-            client: poison_data(data)
+            client: poison_data(data, flip_fraction=self.flp)
             if client in poison_clients
             else client_batch_data(data)
             for (client, data) in self.clients.items()
