@@ -10,7 +10,7 @@ fl2 = FLSniper(img_path, momentum=0)
 # fl4 = FLSniper(img_path, momentum=0.9)
 
 y1, y2, y3, y4 = [], [], [], []
-for i in range(0, 5):
+for i in range(0, 6):
     fl1.initialize(poison_clients=0.3, flp=i / 5.0)
     fl2.initialize(poison_clients=0.3, flp=i / 5.0)
     # fl3.initialize(poison_clients=i / 10.0)
